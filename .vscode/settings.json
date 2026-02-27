@@ -1,0 +1,22 @@
+{
+    "editor.fontLigatures": false,
+    "editor.mouseWheelZoom": true,
+    "editor.fontSize": 18,
+    "editor.tabSize": 8,
+    "sftp.printDebugLog": true,
+    "sftp.autoSave": false,
+    // Python 配置（本地和远程通用）
+    "python.defaultInterpreterPath": "",
+    "python.terminal.activateEnvironment": true,
+    "python.condaPath": "",
+    // 远程开发配置提示
+    // 注意：连接远程后，需要在远程服务器上选择 Python 解释器
+    // 远程 conda 环境路径示例：/home/lyj/miniconda3/envs/LLM_for_causal/bin/python
+    // 或：/home/lyj/anaconda3/envs/LLM_for_causal/bin/python
+    // 终端配置
+    "terminal.integrated.defaultProfile.windows": "Command Prompt",
+    "terminal.integrated.cwd": "${workspaceFolder}",
+    "workbench.settings.useSplitJSON": false,
+    "editor.fontVariations": false,
+    "json.schemas": [],
+}
