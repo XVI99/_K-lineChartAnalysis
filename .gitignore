@@ -1,5 +1,84 @@
-./idea
+# ============================================================
+# K-lineChartAnalysis .gitignore
+# ============================================================
 
-./vscode
+# ---- 系统 / 编辑器 ----
+.idea/
+./.idea/
+./.vscode/
+.vscode/
+./.openclaw/
+.openclaw/
 
-./pytest_cache
+# ---- Python 运行时 ----
+./__pycache__/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+./.venv/
+.venv/
+./.tmp/
+.tmp/
+
+# ---- 依赖包（本地离线包） ----
+./_pkgsrc/
+_pkgsrc/
+
+# ---- 第三方备份（不版本控制） ----
+./github/
+./github-k-line/
+./TradingAgents/
+
+# ---- 测试缓存 ----
+./.pytest_cache/
+.pytest_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---- 数据缓存（运行时生成） ----
+./data/cache/
+./AStockQuant/data_cache/
+./AStockQuant/external_cache/
+./AStockQuant/test/data_cache/
+data_cache/
+external_cache/
+*.csv
+!data/stock_list.csv
+!stock_name_and_code/stock_list.csv
+
+# ---- 回测 / 分析结果（运行时生成） ----
+./AStockQuant/output/
+./AStockQuant/reports/
+./data/results/
+./data/fundamentals/
+output/
+reports/
+
+# ---- 第三方 / 系统目录 ----
+./AStockQuant/.minimax/
+./AStockQuant/dist/
+.minimax/
+dist/
+
+# ---- 敏感信息（含密钥，勿提交） ----
+连接服务器.txt
+*.secret
+.env
+
+# ---- 日志 ----
+*.log
+
+# ---- 构建产物 ----
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ---- macOS ----
+.DS_Store
+
+# ---- Windows ----
+Thumbs.db

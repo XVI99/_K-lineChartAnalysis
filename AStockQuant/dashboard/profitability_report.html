@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AStockQuant - 盈利能力报告</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #1c2128;
+            --border-color: #30363d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-yellow: #d29922;
+            --accent-blue: #58a6ff;
+            --accent-purple: #a371f7;
+            --accent-cyan: #39c5cf;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 24px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        /* Header */
+        .header {
+            text-align: center;
+            padding: 32px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 32px;
+        }
+        .header h1 {
+            font-size: 28px;
+            color: var(--accent-blue);
+            margin-bottom: 8px;
+        }
+        .header p {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        /* Stats Cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .stat-card .label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .stat-card.green .value { color: var(--accent-green); }
+        .stat-card.red .value { color: var(--accent-red); }
+        .stat-card.blue .value { color: var(--accent-blue); }
+        .stat-card.yellow .value { color: var(--accent-yellow); }
+        /* Section */
+        .section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        .section-title {
+            font-size: 18px;
+            color: var(--text-primary);
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 18px;
+            background: var(--accent-blue);
+            border-radius: 2px;
+        }
+        /* Layers Diagram */
+        .layers-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .layer-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border-left: 4px solid;
+        }
+        .layer-item.l1 { border-color: #f85149; }
+        .layer-item.l2 { border-color: #d29922; }
+        .layer-item.l3 { border-color: #a371f7; }
+        .layer-item.l4 { border-color: #58a6ff; }
+        .layer-item.l5 { border-color: #39c5cf; }
+        .layer-item.l6 { border-color: #3fb950; }
+        .layer-item.l7 { border-color: #56d364; }
+        .layer-item.l8 { border-color: #f0883e; }
+        .layer-badge {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            color: #fff;
+        }
+        .l1 .layer-badge { background: #f85149; }
+        .l2 .layer-badge { background: #d29922; }
+        .l3 .layer-badge { background: #a371f7; }
+        .l4 .layer-badge { background: #58a6ff; }
+        .l5 .layer-badge { background: #39c5cf; }
+        .l6 .layer-badge { background: #3fb950; }
+        .l7 .layer-badge { background: #56d364; }
+        .l8 .layer-badge { background: #f0883e; }
+        .layer-info {
+            flex: 1;
+        }
+        .layer-info h4 {
+            font-size: 14px;
+            margin-bottom: 2px;
+        }
+        .layer-info p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        /* ETF Table */
+        .etf-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .etf-table th,
+        .etf-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .etf-table th {
+            background: var(--bg-secondary);
+            font-size: 13px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .etf-table td {
+            font-size: 14px;
+        }
+        .etf-table .code {
+            font-family: monospace;
+            color: var(--accent-blue);
+        }
+        .etf-table .name {
+            font-weight: 500;
+        }
+        .etf-table .profit {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge.buy { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .badge.strong-buy { background: rgba(63, 185, 80, 0.3); color: var(--accent-green); }
+        /* Chart Container */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 900px) {
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+        .chart-box {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 16px;
+            min-height: 300px;
+        }
+        .chart-box h4 {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+        /* Trade History */
+        .trade-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+        .trade-date {
+            font-size: 12px;
+            color: var(--text-secondary);
+            min-width: 80px;
+        }
+        .trade-action {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .trade-action.buy { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+        .trade-action.sell { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+        .trade-code {
+            font-family: monospace;
+            color: var(--accent-blue);
+            min-width: 70px;
+        }
+        .trade-price {
+            color: var(--text-primary);
+        }
+        .trade-profit {
+            margin-left: auto;
+            font-weight: 600;
+        }
+        .trade-profit.positive { color: var(--accent-green); }
+        .trade-profit.negative { color: var(--accent-red); }
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-secondary);
+            font-size: 13px;
+            border-top: 1px solid var(--border-color);
+            margin-top: 32px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>AStockQuant 盈利能力报告</h1>
+            <p>基于九层因子架构的ETF量化交易系统 | 2026-05-31</p>
+        </div>
+
+        <!-- Key Stats -->
+        <div class="stats-grid">
+            <div class="stat-card green">
+                <div class="value">+43.91%</div>
+                <div class="label">总收益率</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="value">+43.91%</div>
+                <div class="label">年化收益率</div>
+            </div>
+            <div class="stat-card yellow">
+                <div class="value">0.886</div>
+                <div class="label">夏普比率</div>
+            </div>
+            <div class="stat-card red">
+                <div class="value">-16.43%</div>
+                <div class="label">最大回撤</div>
+            </div>
+            <div class="stat-card green">
+                <div class="value">66.67%</div>
+                <div class="label">胜率</div>
+            </div>
+            <div class="stat-card blue">
+                <div class="value">33次</div>
+                <div class="label">交易次数</div>
+            </div>
+        </div>
+
+        <!-- Nine Layers -->
+        <div class="section">
+            <h3 class="section-title">九层因子架构</h3>
+            <div class="layers-container">
+                <div class="layer-item l1">
+                    <div class="layer-badge">L1</div>
+                    <div class="layer-info">
+                        <h4>宏观层 (MacroLayer)</h4>
+                        <p>大盘趋势判断 | 牛市/熊市/震荡识别 | MA200/MA60/MA20</p>
+                    </div>
+                </div>
+                <div class="layer-item l2">
+                    <div class="layer-badge">L2</div>
+                    <div class="layer-info">
+                        <h4>制度层 (RulesLayer)</h4>
+                        <p>风险过滤 | ST/退市/停牌排除 | 交易规则执行</p>
+                    </div>
+                </div>
+                <div class="layer-item l3">
+                    <div class="layer-badge">L3</div>
+                    <div class="layer-info">
+                        <h4>板块层 (SectorLayer)</h4>
+                        <p>行业轮动分析 | 热点板块识别 | 龙头股筛选</p>
+                    </div>
+                </div>
+                <div class="layer-item l4">
+                    <div class="layer-badge">L4</div>
+                    <div class="layer-info">
+                        <h4>资金层 (CapitalLayer)</h4>
+                        <p>资金流向分析 | 龙虎榜信号 | 大单净流入</p>
+                    </div>
+                </div>
+                <div class="layer-item l5">
+                    <div class="layer-badge">L5</div>
+                    <div class="layer-info">
+                        <h4>情绪层 (SentimentLayer)</h4>
+                        <p>市场情绪分析 | 涨停/连板检测 | RSI指标</p>
+                    </div>
+                </div>
+                <div class="layer-item l6">
+                    <div class="layer-badge">L6</div>
+                    <div class="layer-info">
+                        <h4>量价层 (PriceVolumeLayer)</h4>
+                        <p>动量分析 | RPS相对价格强度排名 | VCP成交量集中度</p>
+                    </div>
+                </div>
+                <div class="layer-item l7">
+                    <div class="layer-badge">L7</div>
+                    <div class="layer-info">
+                        <h4>技术层 (TechnicalLayer)</h4>
+                        <p>技术指标综合 | MA/RSI/Bollinger/MACD | 形态评分</p>
+                    </div>
+                </div>
+                <div class="layer-item l8">
+                    <div class="layer-badge">L8</div>
+                    <div class="layer-info">
+                        <h4>贝叶斯层 (BeliefLayer)</h4>
+                        <p>概率融合 | 序贯信念更新 | KL漂移检测</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recommended ETFs -->
+        <div class="section">
+            <h3 class="section-title">LLM推荐ETF</h3>
+            <table class="etf-table">
+                <thead>
+                    <tr>
+                        <th>代码</th>
+                        <th>名称</th>
+                        <th>近1年收益</th>
+                        <th>盈利评分</th>
+                        <th>建议</th>
+                        <th>信心度</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="code">159941</td>
+                        <td class="name">广发纳指ETF</td>
+                        <td class="profit">+35.79%</td>
+                        <td>83.0</td>
+                        <td><span class="badge strong-buy">STRONG_BUY</span></td>
+                        <td>80%</td>
+                    </tr>
+                    <tr>
+                        <td class="code">159915</td>
+                        <td class="name">易方达创业板ETF</td>
+                        <td class="profit">+50.46%</td>
+                        <td>78.0</td>
+                        <td><span class="badge strong-buy">STRONG_BUY</span></td>
+                        <td>80%</td>
+                    </tr>
+                    <tr>
+                        <td class="code">159628</td>
+                        <td class="name">中证1000ETF</td>
+                        <td class="profit">+25.00%</td>
+                        <td>63.0</td>
+                        <td><span class="badge buy">BUY</span></td>
+                        <td>65%</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Charts -->
+        <div class="section">
+            <h3 class="section-title">收益分析</h3>
+            <div class="chart-grid">
+                <div class="chart-box">
+                    <h4>权益曲线</h4>
+                    <div id="equityChart" style="width: 100%; height: 280px;"></div>
+                </div>
+                <div class="chart-box">
+                    <h4>月收益率分布</h4>
+                    <div id="monthlyChart" style="width: 100%; height: 280px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Trade History -->
+        <div class="section">
+            <h3 class="section-title">交易记录</h3>
+            <div class="trade-item">
+                <div class="trade-date">2025-07-31</div>
+                <div class="trade-action buy">买入</div>
+                <div class="trade-code">516160</div>
+                <div class="trade-price">@ ¥1.988</div>
+            </div>
+            <div class="trade-item">
+                <div class="trade-date">2025-09-05</div>
+                <div class="trade-action sell">卖出</div>
+                <div class="trade-code">516160</div>
+                <div class="trade-price">@ ¥2.552</div>
+                <div class="trade-profit positive">+28.4%</div>
+            </div>
+            <div class="trade-item">
+                <div class="trade-date">2025-09-16</div>
+                <div class="trade-action buy">买入</div>
+                <div class="trade-code">512480</div>
+                <div class="trade-price">@ ¥1.387</div>
+            </div>
+            <div class="trade-item">
+                <div class="trade-date">2026-01-21</div>
+                <div class="trade-action sell">卖出</div>
+                <div class="trade-code">512480</div>
+                <div class="trade-price">@ ¥1.746</div>
+                <div class="trade-profit positive">+25.9%</div>
+            </div>
+            <div class="trade-item">
+                <div class="trade-date">2025-09-01</div>
+                <div class="trade-action buy">买入</div>
+                <div class="trade-code">512770</div>
+                <div class="trade-price">@ ¥2.002</div>
+            </div>
+            <div class="trade-item">
+                <div class="trade-date">2026-02-12</div>
+                <div class="trade-action sell">卖出</div>
+                <div class="trade-code">512770</div>
+                <div class="trade-price">@ ¥1.37</div>
+                <div class="trade-profit negative">-31.6%</div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p>AStockQuant - 九层因子量化选股系统 | 生成时间: 2026-05-31</p>
+        </div>
+    </div>
+
+    <script>
+        // Equity Curve Chart
+        var equityChart = echarts.init(document.getElementById('equityChart'));
+        var equityOption = {
+            tooltip: {
+                trigger: 'axis',
+                formatter: '{b}: ¥{c}'
+            },
+            grid: {
+                left: '3%',
+                right: '4%',
+                bottom: '3%',
+                top: '3%',
+                containLabel: true
+            },
+            xAxis: {
+                type: 'category',
+                data: ['7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月', '4月', '5月'],
+                axisLine: { lineStyle: { color: '#30363d' } },
+                axisLabel: { color: '#8b949e' }
+            },
+            yAxis: {
+                type: 'value',
+                axisLine: { lineStyle: { color: '#30363d' } },
+                axisLabel: { color: '#8b949e', formatter: '¥{value}' },
+                splitLine: { lineStyle: { color: '#21262d' } }
+            },
+            series: [{
+                name: '权益',
+                type: 'line',
+                smooth: true,
+                data: [10000, 10200, 11800, 11500, 12200, 13500, 14200, 13800, 14400, 14391, 14391],
+                areaStyle: {
+                    color: {
+                        type: 'linear',
+                        x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [
+                            { offset: 0, color: 'rgba(63, 185, 80, 0.3)' },
+                            { offset: 1, color: 'rgba(63, 185, 80, 0.05)' }
+                        ]
+                    }
+                },
+                lineStyle: { color: '#3fb950', width: 2 },
+                itemStyle: { color: '#3fb950' }
+            }]
+        };
+        equityChart.setOption(equityOption);
+
+        // Monthly Returns Chart
+        var monthlyChart = echarts.init(document.getElementById('monthlyChart'));
+        var monthlyOption = {
+            tooltip: {
+                trigger: 'axis',
+                formatter: '{b}: {c}%'
+            },
+            grid: {
+                left: '3%',
+                right: '4%',
+                bottom: '3%',
+                top: '3%',
+                containLabel: true
+            },
+            xAxis: {
+                type: 'category',
+                data: ['7月', '8月', '9月', '10月', '11月', '12月', '1月', '2月', '3月', '4月', '5月'],
+                axisLine: { lineStyle: { color: '#30363d' } },
+                axisLabel: { color: '#8b949e' }
+            },
+            yAxis: {
+                type: 'value',
+                axisLine: { lineStyle: { color: '#30363d' } },
+                axisLabel: { color: '#8b949e', formatter: '{value}%' },
+                splitLine: { lineStyle: { color: '#21262d' } }
+            },
+            series: [{
+                name: '收益率',
+                type: 'bar',
+                data: [2.0, 1.5, 15.7, -2.5, 6.1, 10.7, 5.2, -2.8, 4.3, -0.1, 0.0],
+                itemStyle: {
+                    color: function(params) {
+                        return params.value >= 0 ? '#3fb950' : '#f85149';
+                    }
+                }
+            }]
+        };
+        monthlyChart.setOption(monthlyOption);
+
+        // Resize charts on window resize
+        window.addEventListener('resize', function() {
+            equityChart.resize();
+            monthlyChart.resize();
+        });
+    </script>
+</body>
+</html>

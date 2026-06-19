@@ -1,0 +1,82 @@
+# AStockQuant global configuration
+
+data:
+  request_interval: 1.5
+  batch_limit: 10
+  batch_sleep: 1
+  cache_expire: 3600
+  default_days: 500
+
+trading:
+  budget: 5000
+  instrument_type: "etf"
+  etf_prefixes:
+    - "510"
+    - "511"
+    - "512"
+    - "513"
+    - "515"
+    - "516"
+    - "517"
+    - "518"
+    - "560"
+    - "561"
+    - "562"
+    - "563"
+    - "588"
+    - "159"
+  max_price: 45.0
+  main_board_prefixes: []
+
+models:
+  deep_learning:
+    epochs: 24
+    lr: 0.001
+  temporal:
+    lookback: 30
+    epochs: 12
+    lr: 0.0008
+    mode: "ensemble"
+  rl_allocator:
+    alpha: 0.35
+    beta: 0.20
+    gamma_risk: 0.35
+    max_weight: 0.25
+    turnover_penalty: 0.30
+  ppo:
+    max_weight: 0.25
+    commission: 0.001
+    risk_aversion: 0.25
+
+scanner:
+  top_n: 30
+  min_confidence: 0.55
+
+fusion:
+  ml_weight: 0.35
+  rps_weight: 0.30
+  vcp_weight: 0.20
+  pattern_weight: 0.15
+
+layers:
+  macro: true
+  rules: true
+  sector: true
+  capital: true
+  sentiment: true
+  price_vol: true
+  technical: true
+  micro: false
+  news: false
+
+rules_config:
+  allowed_boards: ["etf_sh", "etf_sz"]
+  exclude_risk_levels: ["st", "delisting", "suspended"]
+
+sector_config:
+  enable_concept: true
+  momentum_days: 5
+  leader_threshold: 3
+  hot_sector_momentum: 0.6
+  hot_sector_consistency: 0.5
+  concept_weight: 0.7
