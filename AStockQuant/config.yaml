@@ -67,7 +67,7 @@ layers:
   price_vol: true
   technical: true
   micro: false
-  news: false
+  news: true
 
 rules_config:
   allowed_boards: ["etf_sh", "etf_sz"]
@@ -80,3 +80,59 @@ sector_config:
   hot_sector_momentum: 0.6
   hot_sector_consistency: 0.5
   concept_weight: 0.7
+
+# ---- 数据源配置（免费源降级链） ----
+# DataHub 按以下顺序尝试获取数据，前一源失败自动降级到下一个：
+#   akshare → 东方财富 → 腾讯 → 新浪 → baostock → tushare → efinance
+#   → tickflow → yfinance → pytdx
+# 无需 token 的源设 enabled: true 即可直接使用；
+# 需要 token 的源（tushare/tsanghi）请填入 token 并设 enabled: true。
+# baostock/pytdx 使用原生 TCP 连接，在 VMware/VPN 环境下需通过 SOCKS5 代理隧道。
+data_sources:
+  proxy:
+    socks5:
+      enabled: true              # 自动探测 Clash/Mihomo mixed-port (7897)
+      host: "127.0.0.1"          # 留空则自动探测
+      port: 7897                 # Clash Verge 默认 mixed-port
+  baostock:
+    enabled: true              # 免费开源，无需注册，需 login/logout（通过 SOCKS5 隧道）
+  tushare:
+    enabled: true              # 设为 true 启用；需先注册获取 token
+    token: ""                 # 已迁到 .env 的 TUSHARE_TOKEN（见 .env.example），此处留空
+  efinance:
+    enabled: true              # 免费开源，无需注册
+  tsanghi:
+    enabled: false             # 设为 true 启用；需先注册获取 token
+    token: ""                  # 从 https://tsanghi.com 注册后填入
+  tickflow:
+    enabled: true              # 免费版提供历史日K线，无需 token，HTTP API
+  yfinance:
+    enabled: true              # Yahoo Finance，免费，HTTP API（可能被限流）
+  pytdx:
+    enabled: true              # 通达信行情接口，免费，通过 SOCKS5 隧道连接
+  exchange_pcf:
+    enabled: true              # 交易所PCF清单（上交所/深交所官方，免费无需token）
+
+# ---- LLM 配置（火山方舟 Coding Plan / Ark API） ----
+# 通过 OpenAI 兼容协议调用，支持 doubao-seed-2.0-pro / glm-5.2 / deepseek-v4-pro 等
+# API Key 在 .env 文件中配置（ARK_API_KEY=xxx），.env 已被 .gitignore 排除
+# 优先级: .env 文件 > 系统环境变量 > 下方 api_key 字段
+llm:
+  enabled: true
+  api_key_env: "ARK_API_KEY"           # .env / 环境变量名（优先读取）
+  api_key: ""                           # 或直接填入（不推荐，勿提交到 git）
+  base_url: "https://ark.cn-beijing.volces.com/api/coding/v3"
+  model: "doubao-seed-2.0-pro"          # 默认模型（通用任务）
+  # 备选模型：glm-5.2 / deepseek-v4-pro / kimi-k2.7-code / doubao-seed-2.0-lite
+  model_light: "doubao-seed-2.0-lite"   # 轻量任务模型（如新闻情绪分类）
+  max_tokens: 4096                      # 默认最大输出 token
+  temperature: 0.3                      # 默认温度（量化分析偏低温）
+  timeout: 60                           # 请求超时（秒）
+  max_retries: 3                        # 失败重试次数
+  retry_delay: 2                         # 重试间隔（秒）
+  # 任务开关
+  tasks:
+    news_sentiment: true                # 新闻情绪分析 → 增强 layer5
+    report_analysis: true               # 研报/板块解读 → 增强 layer3
+    factor_explainer: true              # 因子解释 → 研究报告
+    strategy_report: true               # 策略报告生成 → 回测输出

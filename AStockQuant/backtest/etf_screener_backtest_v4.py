@@ -788,8 +788,8 @@ def main():
     print("  仓位乘数: 连续值 [0, 1]，>0.65→1.0, <0.35→0.0")
     print("=" * 70)
 
-    data_dir = r"F:/_K-lineChartAnalysis/AStockQuant/data_cache"
-    output_dir = Path(r"F:/_K-lineChartAnalysis/AStockQuant/reports")
+    data_dir = str(Path(__file__).resolve().parent.parent / "data_cache")
+    output_dir = Path(__file__).resolve().parent.parent / "reports"
     output_dir.mkdir(parents=True, exist_ok=True)
     initial_capital = 10000.0
     top_n = 10

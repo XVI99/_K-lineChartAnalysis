@@ -156,6 +156,46 @@ class ConfigLoader:
             "pattern_weight": float(fusion.get("pattern_weight", 0.15)),
         }
 
+    def get_data_source_config(self) -> Dict[str, Any]:
+        """获取数据源配置（免费源降级链）"""
+        sources = self.get("data_sources", {})
+        proxy_cfg = sources.get("proxy", {}).get("socks5", {})
+        return {
+            "proxy": {
+                "socks5": {
+                    "enabled": bool(proxy_cfg.get("enabled", True)),
+                    "host": proxy_cfg.get("host", ""),
+                    "port": int(proxy_cfg.get("port", 7897)),
+                },
+            },
+            "baostock": {
+                "enabled": bool(sources.get("baostock", {}).get("enabled", True)),
+            },
+            "tushare": {
+                "enabled": bool(sources.get("tushare", {}).get("enabled", False)),
+                "token": str(sources.get("tushare", {}).get("token", "")),
+            },
+            "efinance": {
+                "enabled": bool(sources.get("efinance", {}).get("enabled", True)),
+            },
+            "tsanghi": {
+                "enabled": bool(sources.get("tsanghi", {}).get("enabled", False)),
+                "token": str(sources.get("tsanghi", {}).get("token", "")),
+            },
+            "tickflow": {
+                "enabled": bool(sources.get("tickflow", {}).get("enabled", True)),
+            },
+            "yfinance": {
+                "enabled": bool(sources.get("yfinance", {}).get("enabled", True)),
+            },
+            "pytdx": {
+                "enabled": bool(sources.get("pytdx", {}).get("enabled", True)),
+            },
+            "exchange_pcf": {
+                "enabled": bool(sources.get("exchange_pcf", {}).get("enabled", True)),
+            },
+        }
+
     def reload(self):
         """重新加载配置文件"""
         if self._config_path:

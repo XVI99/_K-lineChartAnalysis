@@ -1,0 +1,194 @@
+{
+  "date": "2026-03-31",
+  "market_info": {
+    "regime": "BEAR(熊市)",
+    "trend": "-7.99%",
+    "data_date": "2026-03-31",
+    "names": {}
+  },
+  "top_picks": [
+    {
+      "symbol": "511220",
+      "composite_score": 0.9526143790849674,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "159611",
+      "composite_score": 0.8758169934640522,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "159975",
+      "composite_score": 0.8594771241830065,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "159875",
+      "composite_score": 0.8202614379084968,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "159615",
+      "composite_score": 0.7924836601307189,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "515030",
+      "composite_score": 0.7581699346405228,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "512730",
+      "composite_score": 0.7532679738562091,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "511990",
+      "composite_score": 0.7303921568627452,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "159938",
+      "composite_score": 0.7205882352941178,
+      "target_weight": 0.1
+    },
+    {
+      "symbol": "515050",
+      "composite_score": 0.7189542483660131,
+      "target_weight": 0.1
+    }
+  ],
+  "signals": [
+    {
+      "date": "2026-06-22",
+      "symbol": "159919",
+      "action": "SELL",
+      "weight": 0.0,
+      "score": 0.0,
+      "reason": "调仓卖出: 不在目标TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "159611",
+      "action": "HOLD",
+      "weight": 0.1,
+      "score": 0.8758,
+      "reason": "继续持有"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "511220",
+      "action": "HOLD",
+      "weight": 0.1,
+      "score": 0.9526,
+      "reason": "继续持有"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "159975",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.8595,
+      "reason": "新入选TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "159875",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.8203,
+      "reason": "新入选TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "159615",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.7925,
+      "reason": "新入选TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "515030",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.7582,
+      "reason": "新入选TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "512730",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.7533,
+      "reason": "新入选TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "511990",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.7304,
+      "reason": "新入选TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "159938",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.7206,
+      "reason": "新入选TOP10"
+    },
+    {
+      "date": "2026-06-22",
+      "symbol": "515050",
+      "action": "BUY",
+      "weight": 0.1,
+      "score": 0.719,
+      "reason": "新入选TOP10"
+    }
+  ],
+  "alerts": [
+    {
+      "symbol": "511220",
+      "type": "TAKE_PROFIT",
+      "severity": "MEDIUM",
+      "entry_price": 1.5,
+      "current_price": 10.312,
+      "tp_price": 1.8,
+      "pnl_pct": 587.47,
+      "message": "511220 触发止盈! 当前价10.3120 ≥ 止盈价1.8000 (+587.47%)"
+    },
+    {
+      "symbol": "159611",
+      "type": "TAKE_PROFIT",
+      "severity": "MEDIUM",
+      "entry_price": 0.8,
+      "current_price": 1.103,
+      "tp_price": 0.96,
+      "pnl_pct": 37.87,
+      "message": "159611 触发止盈! 当前价1.1030 ≥ 止盈价0.9600 (+37.87%)"
+    },
+    {
+      "symbol": "159611",
+      "type": "TRAILING_STOP",
+      "severity": "LOW",
+      "entry_price": 0.8,
+      "current_price": 1.103,
+      "highest_price": 1.21,
+      "trail_price": 1.1374,
+      "pnl_pct": 37.87,
+      "message": "159611 接近追踪止损! 最高价1.2100 追踪价1.1374 当前1.1030"
+    },
+    {
+      "symbol": "159919",
+      "type": "TAKE_PROFIT",
+      "severity": "MEDIUM",
+      "entry_price": 3.5,
+      "current_price": 4.657,
+      "tp_price": 4.2,
+      "pnl_pct": 33.06,
+      "message": "159919 触发止盈! 当前价4.6570 ≥ 止盈价4.2000 (+33.06%)"
+    }
+  ]
+}

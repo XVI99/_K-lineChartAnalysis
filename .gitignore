@@ -9,6 +9,8 @@
 .vscode/
 ./.openclaw/
 .openclaw/
+.trae/
+.claude/
 
 # ---- Python 运行时 ----
 ./__pycache__/
@@ -82,3 +84,9 @@ build/
 
 # ---- Windows ----
 Thumbs.db
+
+# ---- 备份/临时文件 ----
+*.bak
+*.tmp
+*.swp
+*~

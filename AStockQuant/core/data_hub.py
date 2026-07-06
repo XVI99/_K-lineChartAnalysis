@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -31,6 +32,114 @@ try:
     _AKSHARE = True
 except ImportError:
     _AKSHARE = False
+
+try:
+    import baostock as bs
+    _BAOSTOCK = True
+except ImportError:
+    _BAOSTOCK = False
+
+try:
+    import tushare as ts
+    _TUSHARE = True
+except ImportError:
+    _TUSHARE = False
+
+try:
+    import efinance as ef
+    _EFINANCE = True
+except ImportError:
+    _EFINANCE = False
+
+try:
+    from pytdx.hq import TdxHq_API as _TdxHq_API
+    _PYTDX = True
+except ImportError:
+    _PYTDX = False
+
+try:
+    import yfinance as yf
+    _YFINANCE = True
+except ImportError:
+    _YFINANCE = False
+
+try:
+    import tickflow as _tickflow
+    _TICKFLOW = True
+except ImportError:
+    _TICKFLOW = False
+
+try:
+    import socks as _socks
+    _SOCKS = True
+except ImportError:
+    _SOCKS = False
+
+# ==================== SOCKS5 Tunnel for Raw-Socket Libraries ====================
+
+def _detect_socks5_proxy() -> Optional[Tuple[str, int]]:
+    """自动探测本地 SOCKS5 代理（Clash/Mihomo mixed-port）"""
+    import socket as _socket
+    for port in (7897, 7890, 1080, 10808):
+        try:
+            s = _socket.create_connection(("127.0.0.1", port), timeout=0.5)
+            s.close()
+            return ("127.0.0.1", port)
+        except OSError:
+            continue
+    return None
+
+_DEFAULT_SOCKS5 = _detect_socks5_proxy() if _SOCKS else None
+
+import contextlib
+
+@contextlib.contextmanager
+def _socks_tunnel(proxy: Optional[Tuple[str, int]] = None, timeout: int = 15):
+    """临时将全局 socket 替换为 SOCKS5 代理，用于 baostock/pytdx 等原生 TCP 库。
+
+    背景：当系统有 VMware 虚拟网卡或 VPN 劫持默认路由时，baostock/pytdx 的
+    原生 TCP 连接会超时。通过 Clash 的 mixed-port (SOCKS5) 隧道转发可绕过此问题。
+
+    参数：
+        proxy:  (host, port) 元组，None 则自动探测
+        timeout: socket 超时秒数，防止协议通信 hang 住
+    """
+    proxy = proxy or _DEFAULT_SOCKS5
+    if not proxy or not _SOCKS:
+        yield
+        return
+
+    original_socket = socket.socket
+    original_create = socket.create_connection
+    original_timeout = socket.getdefaulttimeout()
+    _socks.set_default_proxy(_socks.SOCKS5, proxy[0], proxy[1])
+
+    # 自定义 socksocket 子类，强制在创建时设置 timeout
+    # 否则 baostock 内部 socket.recv() 会永久阻塞
+    class _TimedSockSocket(_socks.socksocket):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.settimeout(timeout)
+
+    socket.socket = _TimedSockSocket
+    socket.setdefaulttimeout(timeout)
+
+    def _socks_create_connection(address, timeout=None, source_address=None):
+        sock = _TimedSockSocket()
+        sock.settimeout(timeout or 15)
+        if source_address:
+            sock.bind(source_address)
+        sock.connect(address)
+        return sock
+
+    socket.create_connection = _socks_create_connection
+    try:
+        yield
+    finally:
+        socket.socket = original_socket
+        socket.create_connection = original_create
+        socket.setdefaulttimeout(original_timeout)
+        _socks.socksocket.default_proxy = None
 
 # ==================== Disable System Proxy Session ====================
 
@@ -178,7 +287,13 @@ def _normalize_quote_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _rate_limit(interval: float = 1.5, batch_limit: int = 10, batch_sleep: float = 5):
-    pass
+    """简单限流：sleep interval 秒，避免高频请求被数据源 ban IP。
+
+    batch_limit / batch_sleep 保留以兼容签名，当前未按批次聚合
+    （调用方均为单次 fetch，简单 sleep 即可）。如需更精细的批次限流，
+    可在此处维护全局计数器按 batch_sleep 休眠。
+    """
+    time.sleep(interval)
 
 
 class DataHub:
@@ -194,6 +309,7 @@ class DataHub:
         redis_db: int = 0,
         mode: str = "online",
         local_dir: str = None,
+        data_source_config: Optional[Dict] = None,
     ):
         self._cache = CacheManager(
             host=redis_host, port=redis_port, db=redis_db,
@@ -201,7 +317,36 @@ class DataHub:
         ) if use_cache else None
         self.current_date = current_date
         self.mode = mode
+        # 默认落盘目录：AStockQuant/data_cache/
+        if local_dir is None:
+            local_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data_cache")
         self.local_dir = local_dir
+        os.makedirs(self.local_dir, exist_ok=True)
+
+        # 数据源配置
+        dsc = data_source_config or {}
+        self._baostock_enabled = dsc.get("baostock", {}).get("enabled", True) and _BAOSTOCK
+        self._tushare_enabled = dsc.get("tushare", {}).get("enabled", False) and _TUSHARE
+        # token 优先读环境变量 TUSHARE_TOKEN，其次 config.yaml（已建议留空）
+        self._tushare_token = os.environ.get("TUSHARE_TOKEN") or dsc.get("tushare", {}).get("token", "")
+        self._efinance_enabled = dsc.get("efinance", {}).get("enabled", True) and _EFINANCE
+        self._tsanghi_enabled = dsc.get("tsanghi", {}).get("enabled", False)
+        self._tsanghi_token = dsc.get("tsanghi", {}).get("token", "")
+        self._pytdx_enabled = dsc.get("pytdx", {}).get("enabled", True) and _PYTDX
+        self._yfinance_enabled = dsc.get("yfinance", {}).get("enabled", True) and _YFINANCE
+        self._tickflow_enabled = dsc.get("tickflow", {}).get("enabled", True) and _TICKFLOW
+        self._bs_logged_in = False
+        self._pytdx_api: Optional[object] = None
+        self._tickflow_client = None
+
+        # SOCKS5 代理配置（用于 baostock/pytdx 等原生 TCP 库）
+        proxy_cfg = dsc.get("proxy", {}).get("socks5", {})
+        if proxy_cfg.get("enabled", True) and proxy_cfg.get("host"):
+            self._socks5_proxy = (proxy_cfg["host"], proxy_cfg.get("port", 7897))
+        else:
+            self._socks5_proxy = _DEFAULT_SOCKS5
+        if self._socks5_proxy:
+            print(f"[DataHub] SOCKS5 代理已启用: {self._socks5_proxy[0]}:{self._socks5_proxy[1]} (baostock/pytdx)")
 
     def set_date(self, date_str: str):
         self.current_date = date_str
@@ -299,6 +444,46 @@ class DataHub:
 
         raise RuntimeError("All ETF universe providers are unavailable.")
 
+    def _load_local_csv(self, symbol: str) -> pd.DataFrame:
+        """从本地 CSV 加载数据（用于离线优先模式）"""
+        csv_path = os.path.join(self.local_dir, f"{symbol}.csv")
+        if not os.path.exists(csv_path):
+            return pd.DataFrame()
+        try:
+            df = pd.read_csv(csv_path)
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date")
+            return df.sort_index()
+        except Exception:
+            return pd.DataFrame()
+
+    def _save_local_csv(self, symbol: str, df: pd.DataFrame) -> None:
+        """保存数据到本地 CSV（自动落盘）"""
+        if df.empty or not self.local_dir:
+            return
+        try:
+            csv_path = os.path.join(self.local_dir, f"{symbol}.csv")
+            df.to_csv(csv_path, index=True, index_label="date", encoding="utf-8")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _is_local_fresh(df: pd.DataFrame) -> bool:
+        """检查本地数据是否足够新（最后一天距今 <= 2 个日历日）"""
+        if df.empty:
+            return False
+        try:
+            last_date = df.index[-1]
+            if hasattr(last_date, "to_pydatetime"):
+                last_date = last_date.to_pydatetime()
+            else:
+                last_date = pd.Timestamp(last_date).to_pydatetime()
+            age = (datetime.now() - last_date).days
+            return age <= 2  # 周末/节假日容忍 2 天
+        except Exception:
+            return False
+
     def get_stock_data_ex(
         self, symbol: str, days: int = 500, adjust: str = "qfq"
     ) -> pd.DataFrame:
@@ -308,6 +493,20 @@ class DataHub:
             if cached is not None:
                 return cached
 
+        # 1. 离线优先：检查本地 CSV 是否足够新
+        local_df = self._load_local_csv(symbol)
+        if self._is_local_fresh(local_df):
+            # 本地数据足够新，直接用（截取所需天数）
+            result = local_df.tail(days)
+            if self.current_date:
+                dt = pd.to_datetime(self.current_date)
+                result = result[result.index <= dt]
+                result = result.tail(days)
+            if not result.empty and self._cache:
+                self._cache.put(cache_key, result)
+            return result
+
+        # 2. 本地数据不存在或过期 → 在线获取
         df = pd.DataFrame()
         if _AKSHARE:
             try:
@@ -331,15 +530,99 @@ class DataHub:
             df = self._fetch_tencent(symbol, days)
         if df.empty:
             df = self._fetch_sina(symbol, days)
+        if df.empty:
+            df = self._fetch_baostock(symbol, days)
+        if df.empty:
+            df = self._fetch_tushare(symbol, days)
+        if df.empty:
+            df = self._fetch_efinance(symbol, days)
+        if df.empty:
+            df = self._fetch_tickflow(symbol, days)
+        if df.empty:
+            df = self._fetch_yfinance(symbol, days)
+        if df.empty:
+            df = self._fetch_pytdx(symbol, days)
+
+        # 3. 在线获取失败 → 回退到本地 CSV（即使过期）
+        if df.empty and not local_df.empty:
+            df = local_df.tail(days)
 
         if self.current_date and not df.empty:
             dt = pd.to_datetime(self.current_date)
             df = df[df.index <= dt]
             df = df.tail(days)
 
-        if not df.empty and self._cache:
-            self._cache.put(cache_key, df)
+        # 4. 自动落盘 + Redis 缓存
+        if not df.empty:
+            # 与本地数据合并后保存（增量更新，保留历史）
+            if not local_df.empty:
+                combined = pd.concat([local_df, df])
+                combined = combined[~combined.index.duplicated(keep="last")]
+                combined = combined.sort_index()
+                self._save_local_csv(symbol, combined)
+            else:
+                self._save_local_csv(symbol, df)
+            if self._cache:
+                self._cache.put(cache_key, df)
         return df
+
+    def get_index_data(self, code: str = "000300", days: int = 500) -> pd.DataFrame:
+        """获取指数日K数据（如沪深300=000300，用于 market regime 判断）。
+
+        优先 akshare，失败返回空 DataFrame（调用方需做空值兜底，如
+        MarketScanner._detect_regime 对空 df 返回 NEUTRAL）。
+        """
+        cache_key = f"idx_{code}_{days}_{self.current_date or 'latest'}"
+        if self._cache:
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+        raw = _normalize_symbol(code)
+        # akshare 指数代码：沪 sh + 6位（000300/000001），深 sz + 6位（399001/399006）
+        ak_code = f"sz{raw}" if raw.startswith("399") else f"sh{raw}"
+
+        if _AKSHARE:
+            try:
+                df = ak.stock_zh_index_daily(symbol=ak_code)
+                if df is not None and not df.empty:
+                    df = df.rename(columns=str.lower)
+                    if "date" in df.columns:
+                        df["date"] = pd.to_datetime(df["date"])
+                        df = df.set_index("date")
+                    for c in ["open", "high", "low", "close", "volume"]:
+                        if c in df.columns:
+                            df[c] = pd.to_numeric(df[c], errors="coerce")
+                    keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
+                    df = df[keep].dropna().sort_index().tail(days)
+                    if self.current_date:
+                        df = df[df.index <= pd.to_datetime(self.current_date)]
+                    if not df.empty:
+                        if self._cache:
+                            self._cache.put(cache_key, df)
+                        return df
+            except Exception as e:
+                print(f"[DataHub] akshare index {code} failed: {e}")
+
+        return pd.DataFrame()
+
+    def batch_stock_data(
+        self, stock_list: List[str], days: int = 500
+    ) -> Dict[str, pd.DataFrame]:
+        """批量获取多只标的的日K数据，返回 {symbol: DataFrame}。
+
+        失败的标的会被跳过（不包含在返回 dict 中）。内部复用
+        get_stock_data_ex，享有完整的离线优先 + 10源降级链 + 增量落盘。
+        """
+        result: Dict[str, pd.DataFrame] = {}
+        for sym in stock_list:
+            try:
+                df = self.get_stock_data_ex(sym, days=days)
+                if df is not None and not df.empty:
+                    result[sym] = df
+            except Exception as e:
+                print(f"[DataHub] batch fetch {sym} failed: {e}")
+        return result
 
     def get_realtime_quote(self, symbols: List[str]) -> pd.DataFrame:
         symbols = [_normalize_symbol(s) for s in symbols if _normalize_symbol(s)]
@@ -598,6 +881,400 @@ class DataHub:
         except Exception as e:
             print(f"[DataHub] Sina realtime quote failed: {e}")
             return pd.DataFrame()
+
+    # ==================== 新增降级源：Baostock / Tushare / efinance ====================
+
+    def _fetch_baostock(self, symbol: str, days: int) -> pd.DataFrame:
+        """从 Baostock 获取 ETF/股票历史日线（免费，无需 token）"""
+        if not self._baostock_enabled:
+            return pd.DataFrame()
+        try:
+            import baostock as bs
+            from baostock.util import socketutil as _bs_sock
+            from baostock.common import context as _bs_ctx
+            import baostock.common.contants as _bs_cons
+            import baostock.data.messageheader as _bs_msgheader
+            import zlib as _zlib
+            code = _normalize_symbol(symbol)
+            bs_code = f"sh.{code}" if _get_market_id(code) == 1 else f"sz.{code}"
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=days)
+
+            # 直接 monkey-patch baostock 的 SocketUtil.connect 和 send_msg，
+            # 使其通过 SOCKS5 隧道连接并设置 timeout，且修复 recv 空循环 bug
+            _original_connect = _bs_sock.SocketUtil.connect
+            _original_send_msg = _bs_sock.send_msg
+
+            if self._socks5_proxy and _SOCKS:
+                proxy_host, proxy_port = self._socks5_proxy
+
+                def _socks_connect(self):
+                    sock = _socks.socksocket()
+                    sock.set_proxy(_socks.SOCKS5, proxy_host, proxy_port)
+                    sock.settimeout(15)
+                    sock.connect((_bs_cons.BAOSTOCK_SERVER_IP, _bs_cons.BAOSTOCK_SERVER_PORT))
+                    setattr(_bs_ctx, "default_socket", sock)
+
+                def _socks_send_msg(msg):
+                    """修复版 send_msg：处理 recv 超时和连接关闭"""
+                    try:
+                        if hasattr(_bs_ctx, "default_socket"):
+                            default_socket = getattr(_bs_ctx, "default_socket")
+                            if default_socket is not None:
+                                msg = msg + "\n"
+                                default_socket.send(bytes(msg, encoding='utf-8'))
+                                receive = b""
+                                while True:
+                                    recv = default_socket.recv(8192)
+                                    if not recv:
+                                        break
+                                    receive += recv
+                                    if receive[-13:] == b"<![CDATA[]]>\n":
+                                        break
+                                if not receive:
+                                    return None
+                                head_bytes = receive[0:_bs_cons.MESSAGE_HEADER_LENGTH]
+                                head_str = bytes.decode(head_bytes)
+                                head_arr = head_str.split(_bs_cons.MESSAGE_SPLIT)
+                                if head_arr[1] in _bs_cons.COMPRESSED_MESSAGE_TYPE_TUPLE:
+                                    head_inner_length = int(head_arr[2])
+                                    body_str = bytes.decode(_zlib.decompress(
+                                        receive[_bs_cons.MESSAGE_HEADER_LENGTH:
+                                                _bs_cons.MESSAGE_HEADER_LENGTH + head_inner_length]))
+                                    return head_str + body_str
+                                else:
+                                    return bytes.decode(receive)
+                            else:
+                                return None
+                        else:
+                            return None
+                    except Exception:
+                        return None
+
+                _bs_sock.SocketUtil.connect = _socks_connect
+                _bs_sock.send_msg = _socks_send_msg
+
+            try:
+                if not self._bs_logged_in:
+                    lg = bs.login()
+                    if lg.error_code != "0":
+                        print(f"[DataHub] Baostock login failed: {lg.error_msg}，该源将在本次运行中禁用")
+                        self._baostock_enabled = False
+                        return pd.DataFrame()
+                    self._bs_logged_in = True
+
+                rs = bs.query_history_k_data_plus(
+                    bs_code,
+                    "date,open,high,low,close,volume",
+                    start_date=start_dt.strftime("%Y-%m-%d"),
+                    end_date=end_dt.strftime("%Y-%m-%d"),
+                    frequency="d",
+                )
+                rows = []
+                while rs.error_code == "0" and rs.next():
+                    rows.append(rs.get_row_data())
+            finally:
+                _bs_sock.SocketUtil.connect = _original_connect
+                _bs_sock.send_msg = _original_send_msg
+
+            if not rows:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            for c in ["open", "high", "low", "close", "volume"]:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+            df["volume"] = df["volume"] * 100
+            return df[["open", "high", "low", "close", "volume"]].dropna().sort_index()
+        except (socket.timeout, TimeoutError, OSError) as e:
+            print(f"[DataHub] Baostock 超时/网络错误，该源将禁用: {e}")
+            self._baostock_enabled = False
+            return pd.DataFrame()
+        except Exception as e:
+            print(f"[DataHub] Baostock failed: {e}")
+            return pd.DataFrame()
+
+    def _fetch_tushare(self, symbol: str, days: int) -> pd.DataFrame:
+        """从 Tushare Pro 获取 ETF 日线（需 token）"""
+        if not self._tushare_enabled or not self._tushare_token:
+            return pd.DataFrame()
+        try:
+            import tushare as ts
+            ts.set_token(self._tushare_token)
+            pro = ts.pro_api()
+
+            code = _normalize_symbol(symbol)
+            ts_code = f"{code}.SH" if _get_market_id(code) == 1 else f"{code}.SZ"
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=days)
+
+            df = pro.fund_daily(
+                ts_code=ts_code,
+                start_date=start_dt.strftime("%Y%m%d"),
+                end_date=end_dt.strftime("%Y%m%d"),
+            )
+            if df is None or df.empty:
+                return pd.DataFrame()
+
+            df = df.rename(columns={"trade_date": "date", "vol": "volume"})
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            for c in ["open", "high", "low", "close", "volume"]:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+            df["volume"] = df["volume"] * 100
+            return df[["open", "high", "low", "close", "volume"]].dropna().sort_index()
+        except Exception as e:
+            print(f"[DataHub] Tushare failed: {e}")
+            return pd.DataFrame()
+
+    def _fetch_efinance(self, symbol: str, days: int) -> pd.DataFrame:
+        """从 efinance 获取 ETF/股票历史行情（免费，无需 token）"""
+        if not self._efinance_enabled:
+            return pd.DataFrame()
+        try:
+            import efinance as ef
+            code = _normalize_symbol(symbol)
+            df = ef.stock.get_quote_history(code, kctypes="1")
+            if df is None or df.empty:
+                return pd.DataFrame()
+
+            rename_map = {
+                "日期": "date", "开盘": "open", "收盘": "close",
+                "最高": "high", "最低": "low", "成交量": "volume",
+            }
+            df = df.rename(columns=rename_map)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            for c in ["open", "high", "low", "close", "volume"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
+            if len(keep) < 5:
+                return pd.DataFrame()
+            return df[keep].tail(days).dropna().sort_index()
+        except Exception as e:
+            print(f"[DataHub] efinance failed: {e}")
+            return pd.DataFrame()
+
+    def _fetch_tsanghi(self, symbol: str, days: int) -> pd.DataFrame:
+        """从 Tsanghi 沧海数据获取 ETF 日线（需 token）。
+
+        注意: 本源目前未接入 get_stock_data_ex 的降级链（tsanghi 默认
+        enabled: false）。如需启用，在 config.yaml 设 tsanghi.enabled=true
+        并填 token，然后在 get_stock_data_ex 的源列表中追加 self._fetch_tsanghi。
+        """
+        if not self._tsanghi_enabled or not self._tsanghi_token:
+            return pd.DataFrame()
+        try:
+            code = _normalize_symbol(symbol)
+            market = "XSHG" if _get_market_id(code) == 1 else "XSHE"
+            url = (
+                f"https://tsanghi.com/api/fin/etf/{market}/daily"
+                f"?token={self._tsanghi_token}&ticker={code}"
+                f"&limit={days}"
+            )
+            resp = _request_get(url, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            records = data.get("data", [])
+            if not records:
+                return pd.DataFrame()
+            df = pd.DataFrame(records)
+            if "date" not in df.columns:
+                return pd.DataFrame()
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            for c in ["open", "high", "low", "close", "volume"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
+            if len(keep) < 5:
+                return pd.DataFrame()
+            return df[keep].dropna().sort_index()
+        except Exception as e:
+            print(f"[DataHub] Tsanghi failed: {e}")
+            return pd.DataFrame()
+
+    def _fetch_pytdx(self, symbol: str, days: int) -> pd.DataFrame:
+        """从通达信行情接口获取 ETF/股票日线（免费，无需 token，通过 SOCKS5 隧道）"""
+        if not self._pytdx_enabled:
+            return pd.DataFrame()
+        try:
+            import pytdx.hq as _pytdx_hq
+            import pytdx.base_socket_client as _pytdx_bsc
+            code = _normalize_symbol(symbol)
+            market = _get_market_id(code)  # 1=SH, 0=SZ
+            count = min(days, 800)  # pytdx 单次最多 ~800 根
+
+            # pytdx 的 TrafficStatSocket 继承自 socket.socket，
+            # 全局 monkey-patch 不影响它（类继承在定义时已绑定）。
+            # 需要直接替换为 SOCKS5 兼容版本。
+            _original_ts = _pytdx_bsc.TrafficStatSocket
+            if self._socks5_proxy and _SOCKS:
+                proxy_host, proxy_port = self._socks5_proxy
+
+                class _SocksTrafficStatSocket(_socks.socksocket):
+                    def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0, fileno=None):
+                        super().__init__(family, type, proto, fileno)
+                        self.settimeout(15)
+                        self.send_pkg_num = 0
+                        self.recv_pkg_num = 0
+                        self.send_pkg_bytes = 0
+                        self.recv_pkg_bytes = 0
+                        self.first_pkg_send_time = None
+                        self.last_api_send_bytes = 0
+                        self.last_api_recv_bytes = 0
+
+                _pytdx_bsc.TrafficStatSocket = _SocksTrafficStatSocket
+                _socks.set_default_proxy(_socks.SOCKS5, proxy_host, proxy_port)
+
+            try:
+                if self._pytdx_api is None:
+                    api = _TdxHq_API()
+                    api.need_setup = False
+                    connected = False
+                    for ip, port in [
+                        ("119.147.212.81", 7709), ("14.215.128.18", 7709),
+                        ("59.173.18.77", 7709), ("180.153.39.51", 7709),
+                    ]:
+                        try:
+                            if api.connect(ip, port, time_out=8):
+                                connected = True
+                                break
+                        except Exception:
+                            continue
+                    if not connected:
+                        print("[DataHub] Pytdx 所有服务器连接失败，该源将禁用")
+                        self._pytdx_enabled = False
+                        return pd.DataFrame()
+                    self._pytdx_api = api
+
+                bars = self._pytdx_api.get_security_bars(4, market, code, 0, count)
+            finally:
+                _pytdx_bsc.TrafficStatSocket = _original_ts
+                if _SOCKS:
+                    _socks.socksocket.default_proxy = None
+
+            if not bars:
+                return pd.DataFrame()
+            df = self._pytdx_api.to_df(bars)
+            df["date"] = pd.to_datetime(df["datetime"].str[:10])
+            df = df.set_index("date")
+            df = df.rename(columns={"vol": "volume"})
+            for c in ["open", "high", "low", "close", "volume"]:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+            return df[["open", "high", "low", "close", "volume"]].dropna().sort_index().tail(days)
+        except (socket.timeout, TimeoutError, OSError) as e:
+            print(f"[DataHub] Pytdx 超时/网络错误，该源将禁用: {e}")
+            self._pytdx_enabled = False
+            return pd.DataFrame()
+        except Exception as e:
+            print(f"[DataHub] Pytdx failed: {e}")
+            return pd.DataFrame()
+
+    def _fetch_tickflow(self, symbol: str, days: int) -> pd.DataFrame:
+        """从 TickFlow 免费版获取 ETF/股票日K线（免费，无需 token，HTTP API）"""
+        if not self._tickflow_enabled:
+            return pd.DataFrame()
+        try:
+            if self._tickflow_client is None:
+                self._tickflow_client = _tickflow.TickFlow.free()
+
+            code = _normalize_symbol(symbol)
+            suffix = ".SH" if _get_market_id(code) == 1 else ".SZ"
+            tf_symbol = f"{code}{suffix}"
+
+            df = self._tickflow_client.klines.get(
+                symbol=tf_symbol, period="1d", count=min(days, 500), as_dataframe=True
+            )
+            if df is None or df.empty:
+                return pd.DataFrame()
+
+            df["date"] = pd.to_datetime(df["trade_date"])
+            df = df.set_index("date")
+            for c in ["open", "high", "low", "close", "volume"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
+            if len(keep) < 5:
+                return pd.DataFrame()
+            return df[keep].dropna().sort_index().tail(days)
+        except Exception as e:
+            print(f"[DataHub] TickFlow failed: {e}")
+            return pd.DataFrame()
+
+    def _fetch_yfinance(self, symbol: str, days: int) -> pd.DataFrame:
+        """从 Yahoo Finance 获取 A 股 ETF/股票日线（免费，HTTP API，可能被限流）"""
+        if not self._yfinance_enabled:
+            return pd.DataFrame()
+        try:
+            code = _normalize_symbol(symbol)
+            suffix = ".SS" if _get_market_id(code) == 1 else ".SZ"
+            yf_symbol = f"{code}{suffix}"
+
+            ticker = yf.Ticker(yf_symbol)
+            df = ticker.history(period=f"{min(days, 500)}d")
+            if df is None or df.empty:
+                return pd.DataFrame()
+
+            df.index = pd.to_datetime(df.index).tz_localize(None)
+            df.index.name = "date"
+            df = df.rename(columns={
+                "Open": "open", "High": "high", "Low": "low",
+                "Close": "close", "Volume": "volume",
+            })
+            for c in ["open", "high", "low", "close", "volume"]:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            keep = [c for c in ["open", "high", "low", "close", "volume"] if c in df.columns]
+            if len(keep) < 5:
+                return pd.DataFrame()
+            return df[keep].dropna().sort_index().tail(days)
+        except Exception as e:
+            print(f"[DataHub] YFinance failed: {e}")
+            return pd.DataFrame()
+
+    def close(self):
+        """释放资源（Baostock 登出 / Pytdx 断开 / TickFlow 关闭）"""
+        if self._bs_logged_in and _BAOSTOCK:
+            try:
+                import baostock as bs
+                from baostock.util import socketutil as _bs_sock
+                from baostock.common import context as _bs_ctx
+                import baostock.common.contants as _bs_cons
+                if self._socks5_proxy and _SOCKS:
+                    proxy_host, proxy_port = self._socks5_proxy
+                    def _socks_connect(self):
+                        sock = _socks.socksocket()
+                        sock.set_proxy(_socks.SOCKS5, proxy_host, proxy_port)
+                        sock.settimeout(10)
+                        sock.connect((_bs_cons.BAOSTOCK_SERVER_IP, _bs_cons.BAOSTOCK_SERVER_PORT))
+                        setattr(_bs_ctx, "default_socket", sock)
+                    _bs_sock.SocketUtil.connect = _socks_connect
+                bs.logout()
+                self._bs_logged_in = False
+            except Exception:
+                pass
+        if self._pytdx_api is not None:
+            try:
+                self._pytdx_api.disconnect()
+            except Exception:
+                pass
+            self._pytdx_api = None
+        if self._tickflow_client is not None:
+            try:
+                self._tickflow_client.close()
+            except Exception:
+                pass
+            self._tickflow_client = None
+
+    def __del__(self):
+        """析构时确保 Baostock 登出，防止会话泄露"""
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def get_stock_list(self) -> List[str]:
         """获取 A 股主板股票列表（沪A + 深A）"""

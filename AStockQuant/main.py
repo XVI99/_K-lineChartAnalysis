@@ -181,6 +181,10 @@ def cmd_belief(args):
     layer = BeliefLayer()
     summary = layer.get_market_summary()
 
+    if not summary:
+        print("\n【市场信念汇总】无数据（BeliefLayer 为空，需先运行 scan 累积信念后才能汇总）")
+        return
+
     print(f"\n【市场信念汇总】")
     print(f"  标的数: {summary['count']}")
     print(f"  均值后验: {summary['mean_posterior']:.3f}")

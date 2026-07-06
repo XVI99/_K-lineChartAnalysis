@@ -13,7 +13,7 @@ session = requests.Session()
 session.trust_env = False
 session.proxies = {"http": None, "https": None}
 
-data_cache = 'F:/_K-lineChartAnalysis/AStockQuant/data_cache'
+data_cache = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data_cache')
 os.makedirs(data_cache, exist_ok=True)
 
 # 主要宽基ETF列表 (具有完整历史数据)

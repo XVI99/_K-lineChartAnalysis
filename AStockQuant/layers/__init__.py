@@ -5,14 +5,14 @@ AStockQuant Layers - 九层量化框架
 L1-L8 各层模块统一导出
 """
 
-from layers.layer1_macro import MacroLayer
-from layers.layer2_rules import RulesLayer
-from layers.layer3_sector import SectorLayer
-from layers.layer4_capital import CapitalLayer
-from layers.layer5_sentiment import SentimentLayer
-from layers.layer6_price_vol import PriceVolumeLayer, RPSCalculator
-from layers.layer7_technical import TechnicalLayer
-from layers.layer8_micro import BeliefLayer
+from .layer1_macro import MacroLayer
+from .layer2_rules import RulesLayer
+from .layer3_sector import SectorLayer
+from .layer4_capital import CapitalLayer
+from .layer5_sentiment import SentimentLayer
+from .layer6_price_vol import PriceVolumeLayer, RPSCalculator
+from .layer7_technical import TechnicalLayer
+from .layer8_micro import BeliefLayer
 
 __all__ = [
     'MacroLayer',           # L1 宏观层

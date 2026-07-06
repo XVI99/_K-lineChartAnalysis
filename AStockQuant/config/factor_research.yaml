@@ -1,0 +1,123 @@
+# ===================================================================
+# Factor Research Pipeline Configuration
+# 用于 advanced_factor_research.py 的全部可调参数
+# 优先级: 命令行参数 > 本文件 > 代码内默认值
+# ===================================================================
+
+# ---- 日期范围 ----
+date_range:
+  start: "2021-01-01"
+  end: "2026-03-31"
+
+# ---- 因子面板构建 ----
+panel:
+  rebalance_freq: 5            # 截面采样频率（每 N 个交易日取一个截面）
+  lookback_min: 120            # ETF 最小历史天数，低于此不纳入
+  fwd_days: 20                 # 前向收益天数（IC/分层收益计算用）
+  n_quantiles: 5               # 分层分位数
+  market_proxy: "510300"       # 市场代理标的（regime 判断基准）
+  min_lot: 100                 # 最小交易单位（股）
+  min_eligible: 20             # 单截面合格 ETF 最少数量
+  min_factor_coverage: 200     # 因子非空值少于此数则剔除
+  min_factor_unique: 3         # 因子唯一值少于此数则剔除
+  min_total_etfs: 50           # 数据加载后 ETF 总数少于此数则报错
+
+# ---- Regime 市场状态分类 ----
+regime:
+  trend:
+    ma_window: 60              # 趋势均线窗口
+    ret_window: 60             # 趋势收益窗口
+    bull_threshold: 0.05       # 60日收益 > 此值 且 close > MA60 → trend_bull
+    down_threshold: -0.05      # 60日收益 < 此值 且 close < MA60 → down
+    min_history: 120           # 判断 regime 所需最小历史天数
+  volatility:
+    window: 20                 # 波动率计算窗口
+    hist_window: 120           # 波动率历史分位比较窗口
+    min_hist_for_pct: 30       # 计算分位所需最小历史样本
+    high_vol_pct: 0.7          # 20日波动率分位 >= 此值 → high_vol
+    low_vol_pct: 0.3           # 20日波动率分位 <= 此值 → low_vol
+  leadership:
+    return_window: 20          # 板块收益窗口
+    min_history: 21            # 计算收益所需最小天数
+    theme_dispersion: 0.035    # 板块离散度 > 此值 → theme_market 候选
+    theme_excess: 0.03         # 领先板块超额 > 此值 → theme_market 候选
+    broad_breadth: 0.60        # 上涨广度 >= 此值 → broad_market 候选
+    broad_dispersion: 0.05     # 离散度 < 此值 → broad_market 候选
+
+# ---- 因子评估与筛选 ----
+factor_selection:
+  min_n: 5                     # 最少选几个因子
+  max_n: 15                    # 最多选几个因子
+  min_ic_records: 8             # IC 样本少于此数则跳过该因子
+  min_ls_records: 8            # 多空样本少于此数则跳过
+  thresholds:                  # 硬门槛（满足全部才入选候选池）
+    ic_mean: 0.01
+    icir: 0.05
+    long_short_ret: 0.002
+    monotonicity: 0.5
+    top_quantile_turnover: 0.90
+  relaxed_thresholds:           # 候选不足时的放宽门槛
+    ic_mean: 0.0
+    icir: 0.0
+    long_short_ret: 0.0
+  correlation_cutoff: 0.75     # |Spearman corr| >= 此值则去冗余
+  priority_factors:             # 强制保留（即使与其他动量因子相关性较高）
+    - "pv_rps_20"
+    - "pv_rps_combined"
+  score_weights:                # 因子综合评分公式权重
+    ic: 10.0                   # IC_mean × 此值
+    icir: 1.0                  # ICIR × 此值
+    monotonicity: 1.0          # monotonicity × 此值
+    turnover_penalty: 0.25      # turnover × 此值（负贡献）
+
+# ---- Walk-Forward 回测 ----
+walk_forward:
+  train_months: 12
+  test_months: 3
+  min_train_dates: 10          # 训练集截面少于此数则终止
+  min_test_dates: 3            # 测试集截面少于此数则终止
+  top_n: 10
+  initial_capital: 1000000.0
+  slippage: 0.001
+  commission: 0.0003
+  buffer_rank: 5               # 持仓缓冲：排名在 top_n+buffer_rank 内的持仓保留
+  min_hold_periods: 3          # 最短持有期
+  replace_score_margin: 0.03   # 替换门槛：新候选分必须比最差持仓高此值
+  signal_stride: 1             # 信号步长（每 N 个信号日交易一次）
+  use_regime_gating: true
+  rps_blend_weight: 0.65       # RPS 混合权重: score = w×RPS + (1-w)×多因子
+  rps_source: "pv_rps_20"      # 主 RPS 因子（缺失时回退 pv_rps_combined）
+  min_ic_train_samples: 15     # 训练 IC 计算所需最小截面样本
+
+# ---- Regime 暴露映射（目标仓位）----
+regime_exposure:
+  down_high_vol: 0.0           # 下跌+高波动 → 空仓
+  down: 0.3                    # 下跌 → 30%
+  high_vol_mixed: 0.5          # 高波动+混合 → 50%
+  theme_market: 1.0            # 主题行情 → 满仓
+  broad_market: 1.0           # 宽基行情 → 满仓
+  trend_bull: 0.9             # 趋势牛 → 90%
+  default: 0.7                # 其他 → 70%
+
+# ---- 基准对比 ----
+benchmark:
+  buy_hold_symbols:
+    - "510300"
+    - "510500"
+  rps_momentum:
+    weight_20d: 0.6            # 20日收益权重
+    weight_120d: 0.4          # 120日收益权重
+    top_n: 10
+    min_history_20d: 21       # 计算20日收益所需最小天数
+    min_history_120d: 121     # 计算120日收益所需最小天数
+  equal_weight_lookback: 21   # 等权基准收益回看天数
+
+# ---- 稳健性网格 ----
+robustness:
+  top_n_grid: [5, 10, 15]
+  stride_grid: [1, 2]
+  slippage_grid: [0.0005, 0.001, 0.002]
+
+# ---- 性能统计 ----
+stats:
+  annualization_factor: 252   # 年化交易日数

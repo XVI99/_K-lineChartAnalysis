@@ -12,7 +12,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # 读取所有回测结果
-output_dir = 'F:/_K-lineChartAnalysis/AStockQuant/output'
+output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'output')
 
 # 策略结果汇总
 strategy_results = [

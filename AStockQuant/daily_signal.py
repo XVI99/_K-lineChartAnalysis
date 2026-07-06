@@ -31,17 +31,12 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 import pandas as pd
 
-# 复用 v5 的核心模块；当前工作树中 v5 可能位于 _archive。
-try:
-    from backtest.etf_screener_backtest_v5 import (
-        LayeredETFScreener,
-        ImprovedMacroLayer,
-    )
-except ModuleNotFoundError:
-    from backtest._archive.etf_screener_backtest_v5 import (
-        LayeredETFScreener,
-        ImprovedMacroLayer,
-    )
+# 复用 v4 的核心模块（LayeredETFScreener + ImprovedMacroLayer）。
+# 注：v5 已不在工作树中，v4 提供相同接口；如未来恢复 v5，改回 v5 即可。
+from backtest.etf_screener_backtest_v4 import (
+    LayeredETFScreener,
+    ImprovedMacroLayer,
+)
 
 
 # ============================================================

@@ -7,14 +7,23 @@ Layer7 - 技术层
 
 import pandas as pd
 import numpy as np
-from typing import Dict
+from typing import Dict, Optional
 
 
 class TechnicalLayer:
     """技术层 - 技术指标综合分析"""
     
-    def extract_features(self, symbol: str, df: pd.DataFrame, ctx: Dict) -> Dict:
+    def extract_features(self, symbol: str, df: pd.DataFrame, ctx: Dict, as_of_date: Optional[str] = None) -> Dict:
+        """提取技术层特征
+
+        Args:
+            as_of_date: 截止日期（防未来函数）
+        """
         features = {}
+        
+        # 时序对齐
+        if as_of_date and not df.empty:
+            df = df[df.index <= pd.Timestamp(as_of_date)]
         
         if df.empty or len(df) < 60:
             return features

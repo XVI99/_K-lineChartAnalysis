@@ -1,0 +1,403 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETF量化回测可视化平台</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            background-color: #f5f7fa;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            color: #2c3e50;
+            font-size: 24px;
+        }
+        .file-upload {
+            background: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-card .label {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 8px;
+        }
+        .metric-card .value {
+            font-size: 28px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        .metric-card .value.positive {
+            color: #27ae60;
+        }
+        .metric-card .value.negative {
+            color: #e74c3c;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .chart-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-card h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+            font-size: 16px;
+        }
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        th {
+            background-color: #34495e;
+            color: white;
+            font-weight: 500;
+        }
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        .table-container {
+            margin-bottom: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-pass {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ETF量化回测可视化平台</h1>
+            <div class="file-upload">
+                <input type="file" id="fileInput" accept=".json,.csv">
+                <label for="fileInput">选择回测报告文件</label>
+            </div>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="label">年化收益率</div>
+                <div class="value" id="annualReturn">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">累计收益率</div>
+                <div class="value" id="totalReturn">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">最大回撤</div>
+                <div class="value" id="maxDrawdown">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">夏普比率</div>
+                <div class="value" id="sharpeRatio">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">月收益率≥30%占比</div>
+                <div class="value" id="month30Percent">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="label">目标达成状态</div>
+                <div class="value" id="targetStatus"><span class="status-badge status-fail">未达成</span></div>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-card">
+                <h3>净值曲线</h3>
+                <canvas id="equityChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>回撤曲线</h3>
+                <canvas id="drawdownChart"></canvas>
+            </div>
+            <div class="chart-card full-width">
+                <h3>月度收益率</h3>
+                <canvas id="monthlyReturnChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card full-width">
+            <h3>交易明细</h3>
+            <div class="table-container">
+                <table id="tradeTable">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>标的</th>
+                            <th>方向</th>
+                            <th>价格</th>
+                            <th>数量</th>
+                            <th>收益</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradeTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let equityChart, drawdownChart, monthlyReturnChart;
+
+        document.getElementById('fileInput').addEventListener('change', handleFileUpload);
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            if (file.name.endsWith('.json')) {
+                reader.onload = function(e) {
+                    const data = JSON.parse(e.target.result);
+                    renderData(data);
+                };
+                reader.readAsText(file);
+            } else if (file.name.endsWith('.csv')) {
+                Papa.parse(file, {
+                    header: true,
+                    dynamicTyping: true,
+                    complete: function(results) {
+                        renderData(results.data);
+                    }
+                });
+            }
+        }
+
+        function renderData(data) {
+            // 渲染指标
+            const metrics = data.metrics || data;
+            const annualReturn = metrics.annualized_return || 0;
+            const totalReturn = metrics.total_return || 0;
+            const maxDrawdown = metrics.max_drawdown || 0;
+            const sharpeRatio = metrics.sharpe_ratio || 0;
+            const month30Percent = metrics.monthly_30_percent_ratio || 0;
+            const targetPass = annualReturn >= 1 && month30Percent >= 0.3;
+
+            document.getElementById('annualReturn').textContent = (annualReturn * 100).toFixed(2) + '%';
+            document.getElementById('annualReturn').className = annualReturn >= 0 ? 'value positive' : 'value negative';
+            
+            document.getElementById('totalReturn').textContent = (totalReturn * 100).toFixed(2) + '%';
+            document.getElementById('totalReturn').className = totalReturn >= 0 ? 'value positive' : 'value negative';
+            
+            document.getElementById('maxDrawdown').textContent = (maxDrawdown * 100).toFixed(2) + '%';
+            document.getElementById('maxDrawdown').className = 'value negative';
+            
+            document.getElementById('sharpeRatio').textContent = sharpeRatio.toFixed(2);
+            
+            document.getElementById('month30Percent').textContent = (month30Percent * 100).toFixed(2) + '%';
+            document.getElementById('month30Percent').className = month30Percent >= 0.3 ? 'value positive' : 'value negative';
+            
+            document.getElementById('targetStatus').innerHTML = targetPass ? 
+                '<span class="status-badge status-pass">已达成</span>' : 
+                '<span class="status-badge status-fail">未达成</span>';
+
+            // 渲染图表
+            const equityData = data.equity_curve || [];
+            const drawdownData = data.drawdown_curve || [];
+            const monthlyReturns = data.monthly_returns || [];
+
+            renderEquityChart(equityData);
+            renderDrawdownChart(drawdownData);
+            renderMonthlyReturnChart(monthlyReturns);
+
+            // 渲染交易明细
+            const trades = data.trades || [];
+            const tradeBody = document.getElementById('tradeTableBody');
+            tradeBody.innerHTML = '';
+            trades.forEach(trade => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${trade.date || '-'}</td>
+                    <td>${trade.symbol || '-'}</td>
+                    <td>${trade.direction === 'buy' ? '买入' : '卖出'}</td>
+                    <td>${trade.price ? trade.price.toFixed(2) : '-'}</td>
+                    <td>${trade.quantity || '-'}</td>
+                    <td class="${trade.profit >= 0 ? 'positive' : 'negative'}">${trade.profit ? (trade.profit * 100).toFixed(2) + '%' : '-'}</td>
+                `;
+                tradeBody.appendChild(row);
+            });
+        }
+
+        function renderEquityChart(data) {
+            if (equityChart) equityChart.destroy();
+            const ctx = document.getElementById('equityChart').getContext('2d');
+            equityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(d => d.date),
+                    datasets: [{
+                        label: '净值',
+                        data: data.map(d => d.value),
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(2);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderDrawdownChart(data) {
+            if (drawdownChart) drawdownChart.destroy();
+            const ctx = document.getElementById('drawdownChart').getContext('2d');
+            drawdownChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(d => d.date),
+                    datasets: [{
+                        label: '回撤',
+                        data: data.map(d => d.value * 100),
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(2) + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderMonthlyReturnChart(data) {
+            if (monthlyReturnChart) monthlyReturnChart.destroy();
+            const ctx = document.getElementById('monthlyReturnChart').getContext('2d');
+            monthlyReturnChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => d.month),
+                    datasets: [{
+                        label: '月度收益率',
+                        data: data.map(d => d.value * 100),
+                        backgroundColor: data.map(d => d.value >= 0 ? 'rgba(39, 174, 96, 0.7)' : 'rgba(231, 76, 60, 0.7)'),
+                        borderColor: data.map(d => d.value >= 0 ? 'rgba(39, 174, 96, 1)' : 'rgba(231, 76, 60, 1)'),
+                        borderWidth: 1
+                    }, {
+                        label: '30%目标线',
+                        data: data.map(() => 30),
+                        type: 'line',
+                        borderColor: '#f39c12',
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(2) + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

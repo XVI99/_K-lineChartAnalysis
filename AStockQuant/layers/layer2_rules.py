@@ -12,7 +12,7 @@ Layer2 - 制度层
 """
 
 import pandas as pd
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 class RulesLayer:
     """
@@ -29,9 +29,17 @@ class RulesLayer:
         # ST关键词
         self.st_keywords = ['ST', '*ST', 'S*ST', 'SST']
         
-    def extract_features(self, symbol: str, df: pd.DataFrame, ctx: Dict) -> Dict:
-        """提取制度层特征"""
+    def extract_features(self, symbol: str, df: pd.DataFrame, ctx: Dict, as_of_date: Optional[str] = None) -> Dict:
+        """提取制度层特征
+
+        Args:
+            as_of_date: 截止日期（防未来函数）
+        """
         features = {}
+        
+        # 时序对齐
+        if as_of_date and not df.empty:
+            df = df[df.index <= pd.Timestamp(as_of_date)]
         
         if df.empty:
             features['rules_pass'] = False

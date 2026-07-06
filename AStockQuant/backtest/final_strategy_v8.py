@@ -22,7 +22,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 def load_data(codes, start_date='2015-01-01'):
-    data_cache = 'F:/_K-lineChartAnalysis/AStockQuant/data_cache'
+    data_cache = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data_cache')
     all_data = {}
     for code in codes:
         fp = os.path.join(data_cache, f'{code}.csv')
@@ -357,7 +357,7 @@ if __name__ == '__main__':
     print(f"{'='*60}")
     
     # 保存结果
-    output_dir = 'F:/_K-lineChartAnalysis/AStockQuant/output'
+    output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'output')
     os.makedirs(output_dir, exist_ok=True)
     
     stats['equity_curve'].to_csv(f'{output_dir}/final_strategy_v8.csv', index=False)

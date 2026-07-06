@@ -36,7 +36,7 @@ warnings.filterwarnings('ignore')
 # ============== 数据加载 ==============
 def load_data(codes, start_date='2015-01-01'):
     """加载多个ETF数据"""
-    data_cache = 'F:/_K-lineChartAnalysis/AStockQuant/data_cache'
+    data_cache = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data_cache')
     
     all_data = {}
     for code in codes:
@@ -445,7 +445,7 @@ if __name__ == '__main__':
     print("="*60)
     
     # 保存结果
-    output_file = 'F:/_K-lineChartAnalysis/AStockQuant/output/turtle_backtest_results.csv'
+    output_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'output', 'turtle_backtest_results.csv')
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     stats['equity_curve'].to_csv(output_file, index=False)

@@ -23,9 +23,17 @@ class MacroLayer:
     def __init__(self):
         self.index_codes = ['000300', '000001']  # 沪深300, 上证指数
     
-    def extract_features(self, symbol: str, df: pd.DataFrame, ctx: Dict) -> Dict:
-        """提取宏观特征"""
+    def extract_features(self, symbol: str, df: pd.DataFrame, ctx: Dict, as_of_date: Optional[str] = None) -> Dict:
+        """提取宏观特征
+
+        Args:
+            as_of_date: 截止日期（防未来函数，只用到此日期前的数据）
+        """
         features = {}
+        
+        # 时序对齐
+        if as_of_date and not df.empty:
+            df = df[df.index <= pd.Timestamp(as_of_date)]
         
         if df.empty or len(df) < 60:
             return features
@@ -34,6 +42,12 @@ class MacroLayer:
         market_prices_df = ctx.get('market_prices_df')
         
         if market_prices_df is not None and not market_prices_df.empty:
+            # 时序对齐：大盘数据也截取
+            if as_of_date:
+                market_prices_df = market_prices_df[market_prices_df.index <= pd.Timestamp(as_of_date)]
+            if market_prices_df.empty or len(market_prices_df) < 60:
+                return features
+            
             close = market_prices_df['close']
             
             # 均线系统
@@ -61,7 +75,32 @@ class MacroLayer:
             
             # 趋势强度
             features['trend_strength'] = (ma20 - ma60) / ma60 * 100 if ma60 != 0 else 0
-        
+
+            # ==================== v2新增: 个股相对大盘强度 (有截面区分度) ====================
+            # 原有宏观因子只依赖大盘数据, 对所有ETF值相同, 无选股能力
+            # 新增相对强度因子: ETF收益 - 大盘收益, 正值表示跑赢大盘
+            etf_close = df['close']
+            if len(etf_close) >= 20:
+                etf_ret_20 = etf_close.pct_change(20).iloc[-1]
+                mkt_ret_20 = close.pct_change(20).iloc[-1]
+                if not np.isnan(etf_ret_20) and not np.isnan(mkt_ret_20):
+                    # 相对收益 (百分点)
+                    features['macro_relative_strength'] = float((etf_ret_20 - mkt_ret_20) * 100)
+
+                    # 相对强度连续评分 (sigmoid映射到0-1, 0.5=与大盘持平)
+                    rel_diff = etf_ret_20 - mkt_ret_20
+                    features['macro_relative_score'] = float(
+                        1.0 / (1.0 + np.exp(-np.clip(rel_diff * 10, -50.0, 50.0)))
+                    )
+
+            # ETF相对大盘均线的位置 (ETF价格vs大盘MA60的偏离度差异)
+            if len(etf_close) >= 60 and ma60 != 0:
+                etf_ma60 = etf_close.rolling(60).mean().iloc[-1]
+                if not np.isnan(etf_ma60) and etf_ma60 > 0:
+                    etf_pos = (etf_close.iloc[-1] - etf_ma60) / etf_ma60 * 100
+                    mkt_pos = (cur - ma60) / ma60 * 100
+                    features['macro_relative_position'] = float(etf_pos - mkt_pos)
+
         return features
     
     def get_market_regime(self, market_df: pd.DataFrame = None) -> str:

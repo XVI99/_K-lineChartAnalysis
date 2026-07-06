@@ -684,7 +684,7 @@ def main():
     print("=" * 70)
     
     # 配置
-    data_dir = "F:/_K-lineChartAnalysis/AStockQuant/data_cache"
+    data_dir = str(Path(__file__).resolve().parent.parent / "data_cache")
     initial_capital = 10000.0
     top_n = 10          # 筛选出前10只
     min_score = 25      # 最低得分阈值
@@ -729,7 +729,7 @@ def main():
     print(f"  期末资金:    {results['final_value']:.2f} 元")
     
     # 保存结果
-    output_dir = Path("F:/_K-lineChartAnalysis/AStockQuant/reports")
+    output_dir = Path(__file__).resolve().parent.parent / "reports"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     output_file = output_dir / "screener_backtest_results.json"
