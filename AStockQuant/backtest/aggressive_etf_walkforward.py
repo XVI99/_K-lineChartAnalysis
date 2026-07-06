@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 import warnings
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -25,6 +26,18 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+
+# 把 AStockQuant 根目录加入 sys.path, 确保 from models.* / from backtest.* 可导入
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+try:
+    # 可选依赖: 仅在 --use-ai 启用时需要
+    from backtest.ai_signal_bridge import AISignalBridge, inject_ai_prob
+except Exception:  # pragma: no cover - import 失败时延迟到 --use-ai 才报错
+    AISignalBridge = None  # type: ignore
+    inject_ai_prob = None  # type: ignore
 
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -107,6 +120,7 @@ class StrategyConfig:
     max_rsi: float
     cash_reserve: float
     risk_off: bool
+    ai_weight: float = 0.0   # 0 = 不用 AI; >0 时 ai_prob 作为打分项
 
 
 @dataclass
@@ -321,7 +335,7 @@ def load_feature_panel(
     min_rows: int,
     min_amount: float,
     nav_history_path: Optional[Path] = None,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, List[Dict[str, object]]]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, List[Dict[str, object]], Dict[str, pd.DataFrame]]:
     records: List[Tuple[str, float, int, str, str]] = []
     raw: Dict[str, pd.DataFrame] = {}
 
@@ -385,10 +399,12 @@ def load_feature_panel(
     close_wide = panel.pivot(index="date", columns="code", values="close").sort_index()
     close_wide = close_wide.ffill()
     panel = panel.set_index(["date", "code"]).sort_index()
-    return panel, open_wide, close_wide, universe_rows
+    # stock_data_map: code -> 原始 OHLCV DataFrame, 供 AISignalBridge 训练/预测
+    stock_data_map: Dict[str, pd.DataFrame] = {code: raw[code] for code in selected_codes}
+    return panel, open_wide, close_wide, universe_rows, stock_data_map
 
 
-def build_configs(grid: str) -> List[StrategyConfig]:
+def build_configs(grid: str, ai_weights: Sequence[float] = (0.0,)) -> List[StrategyConfig]:
     profiles = ["burst", "swing", "trend", "theme_burst", "theme_swing", "nav_theme"]
     top_ks = [1, 2, 3]
     rebalances = [3, 5, 10]
@@ -403,27 +419,32 @@ def build_configs(grid: str) -> List[StrategyConfig]:
         rebalances = [1, 2, 3]
         stops = [0.04, 0.06, 0.08]
         risk_flags = [True, False]
+    # 规范化 ai_weights (去重保序, 至少含 0.0 作为 baseline)
+    weights = tuple(float(w) for w in ai_weights) if ai_weights else (0.0,)
     configs: List[StrategyConfig] = []
     for profile in profiles:
         for top_k in top_ks:
             for rebalance in rebalances:
                 for stop in stops:
                     for risk_off in risk_flags:
-                        configs.append(
-                            StrategyConfig(
-                                name=f"{profile}_k{top_k}_r{rebalance}_s{int(stop*100)}_{'ro' if risk_off else 'ri'}",
-                                profile=profile,
-                                top_k=top_k,
-                                rebalance_days=rebalance,
-                                stop_loss=stop,
-                                trailing_stop=0.12,
-                                min_score=0.0,
-                                min_ret20=0.0,
-                                max_rsi=82.0,
-                                cash_reserve=0.05,
-                                risk_off=risk_off,
+                        for ai_weight in weights:
+                            ai_suffix = f"_ai{int(ai_weight * 100)}" if ai_weight > 0 else ""
+                            configs.append(
+                                StrategyConfig(
+                                    name=f"{profile}_k{top_k}_r{rebalance}_s{int(stop*100)}_{'ro' if risk_off else 'ri'}{ai_suffix}",
+                                    profile=profile,
+                                    top_k=top_k,
+                                    rebalance_days=rebalance,
+                                    stop_loss=stop,
+                                    trailing_stop=0.12,
+                                    min_score=0.0,
+                                    min_ret20=0.0,
+                                    max_rsi=82.0,
+                                    cash_reserve=0.05,
+                                    risk_off=risk_off,
+                                    ai_weight=ai_weight,
+                                )
                             )
-                        )
     return configs
 
 
@@ -503,6 +524,9 @@ def score_candidates(day_panel: pd.DataFrame, cfg: StrategyConfig) -> pd.DataFra
         score = 0.08 * df["ret5"] + 0.35 * df["ret20"] + 0.42 * df["ret60"] + 0.15 * df["ret120"] - 0.25 * df["vol20"]
     score = score + 0.05 * df["trend_ma50"].clip(-0.2, 0.2) + 0.05 * df["trend_ma120"].clip(-0.2, 0.2)
     score = score + 0.04 * df["breakout120"].fillna(0.0).clip(-0.3, 0.0)
+    # AI 信号注入: ai_weight>0 且 panel 含 ai_prob 列时, 作为打分项 (减 0.5 保持中性)
+    if cfg.ai_weight > 0 and "ai_prob" in df.columns:
+        score = score + cfg.ai_weight * (df["ai_prob"].fillna(0.5) - 0.5)
     df["score"] = score
     valid = df["score"].notna() & (df["score"] > cfg.min_score) & (df["rsi14"] < cfg.max_rsi) & (df["amount20"].notna())
     if cfg.profile in ("event_burst", "theme_event"):
@@ -874,6 +898,8 @@ def run_walk_forward(
     test_months: int,
     initial_capital: float,
     fee_bps: float,
+    bridge: Optional["AISignalBridge"] = None,
+    stock_data_map: Optional[Dict[str, pd.DataFrame]] = None,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, List[Dict[str, object]]]:
     dates = close_wide.index[(close_wide.index >= start) & (close_wide.index <= end)]
     folds = make_folds(pd.DatetimeIndex(dates), start, end, train_months, test_months)
@@ -886,17 +912,36 @@ def run_walk_forward(
     trade_segments: List[pd.DataFrame] = []
     capital = initial_capital
 
+    use_ai = bridge is not None and stock_data_map is not None
+    if use_ai:
+        print(f"[AI] walk-forward 启用 AI 信号: {len(configs)} configs (含 ai_weight 网格)")
+
     for fold_id, (train_start, train_end, test_start, test_end) in enumerate(folds, start=1):
+        # === AI 引擎训练 + 预测 (每 fold 一次, 严格遵守时序) ===
+        fold_panel = panel
+        if use_ai:
+            print(f"[AI] fold {fold_id}/{len(folds)}: 训练引擎 (as_of={train_end.date()})")
+            bridge.fit(stock_data_map, train_end)
+            # 产出该 fold 覆盖期 [train_start, test_end] 的 ai_prob
+            fold_dates = [d for d in dates if train_start <= d <= test_end]
+            ai_prob_df = bridge.predict_proba(stock_data_map, fold_dates)
+            if not ai_prob_df.empty:
+                fold_panel = inject_ai_prob(panel, ai_prob_df)
+                print(f"[AI] fold {fold_id}: 注入 ai_prob {len(ai_prob_df)} 行 ({ai_prob_df['ai_prob'].min():.3f}~{ai_prob_df['ai_prob'].max():.3f})")
+            else:
+                print(f"[AI] fold {fold_id}: ai_prob 为空, 该 fold 退化无 AI")
+
         best_result: Optional[BacktestResult] = None
         best_score = -1e9
         for cfg in configs:
-            result = run_backtest(panel, open_wide, close_wide, cfg, train_start, train_end, initial_capital, fee_bps)
+            result = run_backtest(fold_panel, open_wide, close_wide, cfg, train_start, train_end, initial_capital, fee_bps)
             score = search_score(result.metrics)
             grid_rows.append(
                 {
                     "fold": fold_id,
                     "phase": "train",
                     "config": cfg.name,
+                    "ai_weight": cfg.ai_weight,
                     "search_score": score,
                     **result.metrics,
                 }
@@ -907,7 +952,7 @@ def run_walk_forward(
         if best_result is None:
             continue
 
-        test_result = run_backtest(panel, open_wide, close_wide, best_result.config, test_start, test_end, capital, fee_bps)
+        test_result = run_backtest(fold_panel, open_wide, close_wide, best_result.config, test_start, test_end, capital, fee_bps)
         capital = float(test_result.metrics["final_equity"])
 
         fold_rows.append(
@@ -1075,6 +1120,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--nav-history", default=str(NAV_HISTORY_PATH), help="dated ETF NAV history CSV; empty string disables NAV features")
     parser.add_argument("--grid", choices=["quick", "default", "full", "event"], default="quick")
     parser.add_argument("--output-prefix", default="aggressive_walkforward", help="report filename prefix under reports/")
+    # AI 信号开关 (默认关闭, 开启后 DL/SEQ 引擎接入 walk-forward)
+    parser.add_argument("--use-ai", action="store_true", help="enable DL/SEQ AI signal bridge")
+    parser.add_argument("--ai-weights", default="0,0.1,0.2,0.3",
+                        help="comma-separated ai_weight grid (only with --use-ai)")
+    parser.add_argument("--dl-epochs", type=int, default=20)
+    parser.add_argument("--seq-epochs", type=int, default=12)
+    parser.add_argument("--seq-mode", choices=["lstm", "transformer", "ensemble"], default="ensemble")
     return parser.parse_args()
 
 
@@ -1082,7 +1134,7 @@ def main() -> None:
     args = parse_args()
     name_map = load_name_map()
     nav_history_path = Path(args.nav_history) if args.nav_history else None
-    panel, open_wide, close_wide, universe_rows = load_feature_panel(
+    panel, open_wide, close_wide, universe_rows, stock_data_map = load_feature_panel(
         DATA_DIR,
         name_map,
         max_etfs=args.max_etfs,
@@ -1092,7 +1144,25 @@ def main() -> None:
     )
     start = pd.Timestamp(args.start)
     end = pd.Timestamp(args.end) if args.end else pd.Timestamp(close_wide.index.max())
-    configs = build_configs(args.grid)
+
+    # AI 信号桥接: --use-ai 启用时构造 bridge, 否则 None (ai_weight 全 0, 等价于无 AI)
+    bridge = None
+    ai_weights: Tuple[float, ...] = (0.0,)
+    if args.use_ai:
+        if AISignalBridge is None:
+            raise RuntimeError("--use-ai 需要 backtest.ai_signal_bridge 模块 (检查 models.deep_learning 依赖)")
+        bridge = AISignalBridge(
+            dl_epochs=args.dl_epochs,
+            seq_epochs=args.seq_epochs,
+            seq_mode=args.seq_mode,
+            verbose=True,
+        )
+        ai_weights = tuple(float(w) for w in args.ai_weights.split(",") if w.strip() != "")
+        if 0.0 not in ai_weights:
+            ai_weights = (0.0,) + ai_weights  # 始终含 baseline
+        print(f"[AI] DL/SEQ bridge 已启用: ai_weights={ai_weights}, seq_mode={args.seq_mode}")
+
+    configs = build_configs(args.grid, ai_weights)
 
     print("=" * 72)
     print("Aggressive ETF walk-forward research")
@@ -1100,6 +1170,8 @@ def main() -> None:
     nav_codes = int(panel.reset_index().loc[panel.reset_index()["nav_available"].fillna(False), "code"].nunique()) if "nav_available" in panel.columns else 0
     print(f"Universe: {len(universe_rows)} ETFs | configs: {len(configs)} | NAV codes: {nav_codes} | period: {start.date()} -> {end.date()}")
     print(f"Train/test: {args.train_months}m/{args.test_months}m | capital: {args.initial_capital:,.0f} | fee_bps: {args.fee_bps}")
+    if args.use_ai:
+        print(f"AI: enabled | ai_weights={ai_weights} | dl_epochs={args.dl_epochs} | seq_epochs={args.seq_epochs} | seq_mode={args.seq_mode}")
 
     folds_df, grid_df, equity_df, trades_df = run_walk_forward(
         panel,
@@ -1112,6 +1184,8 @@ def main() -> None:
         args.test_months,
         args.initial_capital,
         args.fee_bps,
+        bridge=bridge,
+        stock_data_map=stock_data_map,
     )
     summary = summarize_walk_forward(folds_df, equity_df, trades_df, args, universe_rows, panel)
     output_paths = save_outputs(summary, folds_df, grid_df, equity_df, trades_df, args.output_prefix)
