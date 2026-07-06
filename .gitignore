@@ -47,6 +47,9 @@ htmlcov/
 ./AStockQuant/test/data_cache/
 data_cache/
 external_cache/
+
+# ---- 旧版系统目录（含个人持仓/服务器配置/邮箱，勿提交）----
+quant_system/
 *.csv
 !data/stock_list.csv
 !stock_name_and_code/stock_list.csv
